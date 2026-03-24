@@ -1,0 +1,18 @@
+#version 120
+
+varying vec2 texcoord;
+varying vec4 glColor;
+varying vec3 worldPos;
+
+uniform mat4 gbufferModelViewInverse;
+
+void main() {
+    // Standardowe transformacje wierzchołków
+    gl_Position = ftransform();
+    texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).st;
+    glColor = gl_Color;
+    
+    // Obliczamy trójwymiarową pozycję w świecie (niezbędne do ładnego falowania bez szwów między blokami)
+    vec4 viewPos = gl_ModelViewMatrix * gl_Vertex;
+    worldPos = (gbufferModelViewInverse * viewPos).xyz;
+}
