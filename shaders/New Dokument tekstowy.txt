@@ -1,0 +1,118 @@
+// --- deferred.fsh ---
+#version 120
+
+// Załączamy nasze nowe biblioteki
+#include "/lib/math/noise.glsl"
+#include "/lib/sky/clouds.glsl"
+
+uniform sampler2D colortex0;
+uniform sampler2D depthtex0;
+
+uniform mat4 gbufferModelViewInverse;
+uniform mat4 gbufferProjectionInverse;
+uniform vec3 cameraPosition;
+
+uniform float frameTimeCounter; 
+uniform float rainStrength;
+uniform vec3 sunPosition;
+uniform vec3 fogColor;
+
+varying vec2 texcoord;
+
+void main() {
+    vec2 uv = texcoord;
+    
+    // 1. Pobieramy obecny kolor świata i głębię
+    vec3 color = texture2D(colortex0, uv).rgb;
+    float depth = texture2D(depthtex0, uv).r;
+
+    // 2. Obliczamy wektory kierunku patrzenia (View Direction) i pozycję na świecie
+    vec4 fragPosView = gbufferProjectionInverse * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
+    fragPosView /= fragPosView.w;
+    vec3 viewDir = normalize((gbufferModelViewInverse * fragPosView).xyz);
+    
+    vec4 terrainPos = gbufferProjectionInverse * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    terrainPos /= terrainPos.w;
+    float terrainDist = length(terrainPos.xyz);
+
+    // Wektor słońca (uproszczony dla globalnego oświetlenia chmur)
+    vec3 sunDirWorld = normalize((gbufferModelViewInverse * vec4(normalize(sunPosition), 0.0)).xyz);
+
+    // Bezpieczny czas i prędkość globalna
+    float safeTime = mod(frameTimeCounter, 3600.0);
+    float globalTime = mod(safeTime * 10.0, 1000.0) * 0.5 * GLOBAL_SPEED;
+
+    // 3. Renderowanie chmur tylko jeśli patrzymy na niebo lub obiekty w oddali
+    if (abs(viewDir.y) > 0.001) {
+        float safeViewY = sign(viewDir.y) * max(abs(viewDir.y), 0.001);
+        
+        // Obliczanie dystansu do warstw (T)
+        float tHigh = (HEIGHT_HIGH - cameraPosition.y) / safeViewY;
+        float tMid = (HEIGHT_MID - cameraPosition.y) / safeViewY;
+        float tLow = (HEIGHT_LOW - cameraPosition.y) / safeViewY;
+
+        // --- Ustawienia kolorów i gęstości z Twojego kodu ---
+        float lowDensity = mix(0.55, 0.25, rainStrength);
+        vec3 lowColor = mix(vec3(1.0, 1.0, 1.0), vec3(0.15, 0.18, 0.22), rainStrength); 
+        float lowSpeed = 1.5 + rainStrength * 3.0;
+        float lowAlpha = mix(0.95, 1.0, rainStrength);
+
+        float midDensity = mix(0.53, 0.35, rainStrength);
+        vec3 midColor = mix(vec3(0.95, 0.95, 0.98), vec3(0.25, 0.28, 0.32), rainStrength);
+        float midSpeed = 1.0 + rainStrength * 2.0;
+        float midAlpha = 0.85;
+
+        float highDensity = mix(0.50, 0.40, rainStrength);
+        vec3 highColor = vec3(1.0, 1.0, 1.0);
+        float highSpeed = 0.5 + rainStrength * 1.5;
+        float highAlpha = 0.60;
+
+        // Podstawowe oświetlenie chmur
+        float sunDot = max(0.0, dot(viewDir, sunDirWorld));
+        vec3 directionalGlow = mix(vec3(1.0), fogColor * 1.8, pow(sunDot, 3.0) * 0.9);
+        float ambientLight = clamp(length(fogColor), 0.08, 1.0);
+        vec3 globalLighting = directionalGlow * ambientLight;
+
+        lowColor *= globalLighting;
+        midColor *= globalLighting;
+        highColor *= globalLighting;
+
+        // 4. Nakładanie warstw (Alpha Compositing)
+        // Sortowanie od tyłu do przodu w zależności od kierunku patrzenia
+        if (viewDir.y > 0.0) {
+            #ifdef ENABLE_HIGH_CLOUDS
+            vec4 highLayer = getCloudLayer(tHigh, BLOCK_SIZE_HIGH, vec2(0.0005, 0.002), highDensity, highSpeed, highColor, highAlpha, viewDir, terrainDist, depth, globalTime, cameraPosition);
+            color = mix(color, highLayer.rgb, highLayer.a);
+            #endif
+            
+            #ifdef ENABLE_MID_CLOUDS
+            vec4 midLayer = getCloudLayer(tMid, BLOCK_SIZE_MID, vec2(0.003, 0.003), midDensity, midSpeed, midColor, midAlpha, viewDir, terrainDist, depth, globalTime, cameraPosition);
+            color = mix(color, midLayer.rgb, midLayer.a);
+            #endif
+            
+            #ifdef ENABLE_LOW_CLOUDS
+            vec4 lowLayer = getCloudLayer(tLow, BLOCK_SIZE_LOW, vec2(0.004, 0.004), lowDensity, lowSpeed, lowColor, lowAlpha, viewDir, terrainDist, depth, globalTime, cameraPosition);
+            color = mix(color, lowLayer.rgb, lowLayer.a);
+            #endif
+        } else {
+            // Gdy patrzymy w dół (np. z wysokiej góry), odwracamy kolejność renderowania
+            #ifdef ENABLE_LOW_CLOUDS
+            vec4 lowLayer = getCloudLayer(tLow, BLOCK_SIZE_LOW, vec2(0.004, 0.004), lowDensity, lowSpeed, lowColor, lowAlpha, viewDir, terrainDist, depth, globalTime, cameraPosition);
+            color = mix(color, lowLayer.rgb, lowLayer.a);
+            #endif
+            
+            #ifdef ENABLE_MID_CLOUDS
+            vec4 midLayer = getCloudLayer(tMid, BLOCK_SIZE_MID, vec2(0.003, 0.003), midDensity, midSpeed, midColor, midAlpha, viewDir, terrainDist, depth, globalTime, cameraPosition);
+            color = mix(color, midLayer.rgb, midLayer.a);
+            #endif
+            
+            #ifdef ENABLE_HIGH_CLOUDS
+            vec4 highLayer = getCloudLayer(tHigh, BLOCK_SIZE_HIGH, vec2(0.0005, 0.002), highDensity, highSpeed, highColor, highAlpha, viewDir, terrainDist, depth, globalTime, cameraPosition);
+            color = mix(color, highLayer.rgb, highLayer.a);
+            #endif
+        }
+    }
+
+    // Zapisujemy nowy obraz (teren + chmury) do domyślnego bufora kolorów
+    gl_FragData[0] = vec4(color, 1.0);
+}
