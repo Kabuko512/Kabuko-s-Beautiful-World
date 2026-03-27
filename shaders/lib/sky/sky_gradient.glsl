@@ -1,42 +1,74 @@
 // --- /lib/sky/sky_gradient.glsl ---
 
-vec3 getSkyColor(vec3 viewDir, vec3 sunDir, vec3 fogCol, float rain) {
-    // 1. Sprawdzamy porę dnia na podstawie wysokości słońca
+// ==========================================================
+// 🧪 TWOJE LABORATORIUM KOLORÓW (EDYTUJ ŚMIAŁO!)
+// Wartości RGB od 0.0 do 1.0 (Czerwony, Zielony, Niebieski)
+// ==========================================================
+
+// --- 1. KOLORY SAMEGO NIEBA (Tło za chmurami) ---
+// Mogą być ciemniejsze. Dzięki temu niebo nad głową jest głębokie i nie psuje ekspozycji (HDR).
+#define SKY_DAY_ZENITH    vec3(0.03, 0.05, 0.25)
+#define SKY_DAY_HORIZON   vec3(0.04, 0.04, 0.08)
+
+#define SKY_NIGHT_ZENITH  vec3(0.01, 0.01, 0.03)
+#define SKY_NIGHT_HORIZON vec3(0.02, 0.02, 0.06)
+
+#define SKY_SUNSET        vec3(0.80, 0.30, 0.10)
+
+// --- 2. KOLORY MGŁY ATMOSFERYCZNEJ (LOD, Voxy, DH) ---
+// Tutaj dajemy czadu! Mgła może być bardzo jasna. 
+// Rozjaśnij FOG_DAY, aby uzyskać efekt anime / Ghibli, nie psując przy tym nieba!
+#define FOG_DAY           vec3(0.85, 0.85, 0.85) 
+#define FOG_NIGHT         vec3(0.02, 0.03, 0.06)
+#define FOG_SUNSET        vec3(0.90, 0.40, 0.15)
+
+// ==========================================================
+
+
+// Funkcja 1: Wylicza kolor NIEBA (Tła)
+vec3 getSkyColor(vec3 viewDir, vec3 sunDir, vec3 fogColVanilla, float rain) {
     float sunHeight = sunDir.y;
-    float dayFactor = smoothstep(-0.2, 0.2, sunHeight); // 1.0 = dzień, 0.0 = noc
-    float sunsetFactor = smoothstep(0.3, -0.1, abs(sunHeight - 0.1)); // Błysk przy horyzoncie
+    float dayFactor = smoothstep(-0.2, 0.2, sunHeight); 
+    float sunsetFactor = smoothstep(0.3, -0.1, abs(sunHeight - 0.1)); 
 
-// 2. Definiujemy kolory Zenitu (czubek głowy) i Horyzontu
+    vec3 zenith = mix(SKY_NIGHT_ZENITH, SKY_DAY_ZENITH, dayFactor);
+    vec3 horizon = mix(SKY_NIGHT_HORIZON, SKY_DAY_HORIZON, dayFactor);
     
-    // Ustawiamy globalny mnożnik jasności dnia, żeby łatwiej było to kalibrować
-    float dayBrightness = 0.15; // Zmieniaj tę wartość (np. od 0.05 do 0.5), by zbalansować dzień
+    // Dodatek blasku zachodu słońca
+    horizon = mix(horizon, SKY_SUNSET, sunsetFactor * (1.0 - rain));
 
-    // Dzień: Ekstremalnie zaniżone wartości bazowe (tonemapper je podbije)
-    vec3 dayZenith = vec3(0.02, 0.08, 0.25) * dayBrightness; 
-    vec3 dayHorizon = vec3(0.1, 0.25, 0.4) * dayBrightness;
-
-    // Noc i zachód bez zmian, skoro wyglądają dobrze
-    vec3 nightZenith = vec3(0.02, 0.02, 0.05);
-    vec3 nightHorizon = vec3(0.05, 0.05, 0.1);
-    vec3 sunsetCol = vec3(1.0, 0.4, 0.15);
-
-    // 3. Mieszamy kolory zależnie od dnia/nocy
-    vec3 zenith = mix(nightZenith, dayZenith, dayFactor);
-    vec3 horizon = mix(nightHorizon, dayHorizon, dayFactor);
-
-    // Dodajemy ciepły blask zachodu słońca przy horyzoncie (bez zmian)
-    horizon = mix(horizon, sunsetCol, sunsetFactor * (1.0 - rain));
-
-    // 4. Obliczamy końcowy gradient
-    // Wykorzystujemy viewDir.y (od -1.0 do 1.0)
     float up = max(viewDir.y, 0.0);
-    
-    // Potęga pow(up, 0.5) sprawia, że przejście jest miękkie i naturalne
     vec3 sky = mix(horizon, zenith, pow(up, 0.6));
 
-    // 5. Wygaszenie nieba podczas deszczu (szary filtr)
-    vec3 rainSky = fogCol * 0.5;
+    // Deszcz przyciemnia niebo
+    vec3 rainSky = fogColVanilla * 0.4;
     sky = mix(sky, rainSky, rain);
 
     return sky;
+}
+
+// Funkcja 2: Wylicza kolor MGŁY (Nakładany na teren i Voxy/DH)
+vec3 getAtmosphericFogColor(vec3 viewDir, vec3 sunDir, vec3 fogColVanilla, float rain) {
+    float sunHeight = sunDir.y;
+    float dayFactor = smoothstep(-0.2, 0.2, sunHeight); 
+    float sunsetFactor = smoothstep(0.3, -0.1, abs(sunHeight - 0.1)); 
+
+    // Bierzemy od razu Twój jasny kolor mgły z ustawień
+    vec3 fogBase = mix(FOG_NIGHT, FOG_DAY, dayFactor);
+    
+    // Obliczamy "płaski" dystans do słońca, by mgła była pomarańczowa tylko tam, gdzie zachodzi słońce!
+    vec3 flatView = vec3(viewDir.x, 0.0, viewDir.z);
+    vec3 flatSun = vec3(sunDir.x, 0.0, sunDir.z);
+    float sunGlow = 0.0;
+    
+    if (length(flatView) > 0.001 && length(flatSun) > 0.001) {
+        sunGlow = pow(max(dot(normalize(flatView), normalize(flatSun)), 0.0), 2.0);
+    }
+    
+    fogBase = mix(fogBase, FOG_SUNSET, sunsetFactor * sunGlow * (1.0 - rain));
+
+    // Podczas deszczu mgła staje się mocno szara (pobiera kolor mgły z gry)
+    fogBase = mix(fogBase, fogColVanilla * 0.7, rain);
+
+    return fogBase;
 }
