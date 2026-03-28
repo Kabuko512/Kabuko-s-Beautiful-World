@@ -7,8 +7,8 @@
 
 // --- 1. KOLORY SAMEGO NIEBA (Tło za chmurami) ---
 // Mogą być ciemniejsze. Dzięki temu niebo nad głową jest głębokie i nie psuje ekspozycji (HDR).
-#define SKY_DAY_ZENITH    vec3(0.03, 0.05, 0.25)
-#define SKY_DAY_HORIZON   vec3(0.04, 0.04, 0.08)
+#define SKY_DAY_ZENITH    vec3(0.04, 0.12, 0.35)
+#define SKY_DAY_HORIZON   vec3(0.12, 0.28, 0.50)
 
 #define SKY_NIGHT_ZENITH  vec3(0.01, 0.01, 0.03)
 #define SKY_NIGHT_HORIZON vec3(0.02, 0.02, 0.06)
